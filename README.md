@@ -1,194 +1,76 @@
-# Front Despacho DevOps EV2
+# Flujo CI/CD
 
-Aplicación frontend en **React + Vite** para gestionar el flujo de despachos:
+Este repositorio usa **GitHub Actions** con el workflow:
 
-1. Consultar órdenes de compra disponibles.
-2. Generar una orden de despacho desde una compra.
-3. Revisar despachos creados.
-4. Modificar intentos de entrega y cerrar despacho.
+- `.github/workflows/main.yml`
 
-## Tabla de contenido
+## Disparador (Trigger)
 
-- [Tecnologías](#tecnologías)
-- [Arquitectura y estructura](#arquitectura-y-estructura)
-- [Flujo funcional](#flujo-funcional)
-- [Integración con APIs](#integración-con-apis)
-- [Requisitos](#requisitos)
-- [Instalación y ejecución local](#instalación-y-ejecución-local)
-- [Build de producción](#build-de-producción)
-- [Ejecución con Docker](#ejecución-con-docker)
-- [Scripts disponibles](#scripts-disponibles)
-- [Datos y comportamiento esperado](#datos-y-comportamiento-esperado)
-- [Validación y troubleshooting](#validación-y-troubleshooting)
+El pipeline se ejecuta en:
 
-## Tecnologías
+- `push` a la rama `main`
 
-- React 18
-- Vite 5
-- React Router DOM 6
-- Axios
-- React Hook Form
-- SweetAlert2
-- Tailwind CSS
-- ESLint
-- Nginx (en despliegue Docker)
+## Resumen del pipeline
 
-## Arquitectura y estructura
+El flujo tiene 2 jobs secuenciales:
 
-```text
-src/
-  main.jsx                     # Punto de entrada
-  Routes/AppRoutes.jsx         # Router principal (ruta /)
-  componentes/
-    CrudAdmin.jsx              # Layout principal de dashboard
-    CrudAdmin/
-      PruebaCards.jsx          # Selector de vistas (compras/despachos)
-      TableCompras.jsx         # Tabla de compras + generar despacho
-      TableDespachos.jsx       # Tabla de despachos + cierre de despacho
-      FormDespacho.jsx         # Formulario de creación de despacho
-      FormCierreDespacho.jsx   # Formulario de edición/cierre
-      Modal.jsx                # Modal reutilizable
-      CardComponent.jsx        # Tarjeta reutilizable
-    Layouts/
-      Navbar.jsx
-      Reviews.jsx
-      Footer.jsx
-```
+1. `build-and-push`
+2. `deploy-to-ec2` (depende de `build-and-push`)
 
-La aplicación expone una sola ruta (`/`) que renderiza el dashboard de administración logística.
+---
 
-## Flujo funcional
+## Job 1: build-and-push
 
-### 1) Consulta de órdenes de compra
+Objetivo: construir imagen Docker del frontend y publicarla en Amazon ECR.
 
-- Al abrir **“Consultar Órdenes de compra”**, se muestra `TableCompras`.
-- Se hace `GET /api/v1/ventas`.
-- Solo se visualizan compras con `despachoGenerado = false`.
+Pasos:
 
-### 2) Generación de despacho
+1. Checkout del código (`actions/checkout@v4`).
+2. Configuración de credenciales AWS (`aws-actions/configure-aws-credentials@v4`).
+3. Login en ECR (`aws-actions/amazon-ecr-login@v2`).
+4. Build de imagen con 2 tags:
+   - `${{ github.sha }}`
+   - `latest`
+5. Push de ambos tags al repositorio ECR.
 
-Desde la tabla de compras, botón **“Generar Despacho”**:
+Variables usadas:
 
-- Abre modal con `FormDespacho`.
-- Envía:
-  - `PUT /api/v1/ventas/{idVenta}` para marcar la compra como procesada (`despachoGenerado: true`).
-  - `POST /api/v1/despachos` para crear el despacho con fecha, patente, compra asociada, dirección y valor.
-- Muestra confirmación visual con SweetAlert.
+- `REGISTRY_URL = ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com`
+- `ECR_REPOSITORY = ${{ secrets.AWS_ECR_REPOSITORY }}`
+- `IMAGE_TAG = ${{ github.sha }}`
 
-### 3) Revisión de despachos
+---
 
-- Al abrir **“Revisar Órdenes de despacho”**, se muestra `TableDespachos`.
-- Se hace `GET /api/v1/despachos`.
-- Se listan estado de entrega e intentos.
+## Job 2: deploy-to-ec2
 
-### 4) Cierre/modificación de despacho
+Objetivo: desplegar la imagen `latest` en una instancia EC2 por AWS SSM.
 
-Desde la tabla de despachos, botón **“Cerrar despacho”**:
+Pasos:
 
-- Abre modal con `FormCierreDespacho`.
-- Permite cambiar intentos y estado de cierre.
-- Envía `PUT /api/v1/despachos/{idDespacho}`.
-- Muestra confirmación visual.
+1. Configuración de credenciales AWS.
+2. Ejecución de `aws ssm send-command` sobre `${{ secrets.EC2_INSTANCE_ID }}`.
+3. Comandos remotos ejecutados en EC2:
+   - crear directorio de trabajo,
+   - login de Docker contra ECR,
+   - pull de imagen `latest`,
+   - stop/remove de contenedor anterior (`react-frontend`),
+   - run de nuevo contenedor en `-p 80:80`,
+   - limpieza de imágenes (`docker image prune -a -f`).
 
-## Integración con APIs
+---
 
-### Desarrollo local (Vite)
+## Secrets requeridos
 
-`vite.config.js` define proxy para `/api` hacia:
+El workflow depende de estos secrets de GitHub:
 
-`https://qic534o8o0.execute-api.us-east-1.amazonaws.com`
+- `AWS_ACCOUNT_ID`
+- `AWS_REGION`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+- `AWS_ECR_REPOSITORY`
+- `EC2_INSTANCE_ID`
 
-Con reescritura:
+## Flujo visual
 
-- `/api/v1/ventas` → `/v1/ventas`
-- `/api/v1/despachos` → `/v1/despachos`
-
-### Producción (Nginx en Docker)
-
-`nginx.conf` enruta:
-
-- `/api/v1/ventas` hacia `backend_ventas` (`<BACKEND_VENTAS_IP>:8080`)
-- `/api/v1/despachos` hacia `backend_despachos` (`<BACKEND_DESPACHOS_IP>:8081`)
-
-> Nota: esas IP son internas del entorno de despliegue y deben ajustarse según infraestructura.
-
-## Requisitos
-
-- Node.js 20+
-- npm 9+
-
-Opcional para contenedor:
-
-- Docker
-
-## Instalación y ejecución local
-
-1. Instalar dependencias:
-
-```bash
-npm ci
-```
-
-2. Levantar en desarrollo:
-
-```bash
-npm run dev
-```
-
-3. Abrir en navegador:
-
-`http://localhost:5173`
-
-## Build de producción
-
-```bash
-npm run build
-```
-
-El resultado queda en `dist/`.
-
-Para previsualizar build local:
-
-```bash
-npm run preview
-```
-
-## Ejecución con Docker
-
-Construir imagen:
-
-```bash
-docker build -t front-despacho .
-```
-
-Ejecutar contenedor:
-
-```bash
-docker run --rm -p 8080:80 front-despacho
-```
-
-Abrir:
-
-`http://localhost:8080`
-
-## Scripts disponibles
-
-- `npm run dev`: servidor de desarrollo con HMR.
-- `npm run build`: build optimizado para producción.
-- `npm run preview`: sirve build localmente.
-- `npm run lint`: validación ESLint.
-
-## Datos y comportamiento esperado
-
-- El frontend espera que los servicios de compras y despachos estén disponibles y respondan en JSON.
-- Si la API no responde o hay error de red, se registra error en consola (`console.error`).
-- Existe un `db.json` de referencia con ventas de ejemplo, útil como dataset de apoyo.
-
-## Validación y troubleshooting
-
-- Si falla `npm run lint`, revisa reglas de ESLint y props validation.
-- Si falla la carga de tablas, valida:
-  - conectividad con los backends,
-  - rutas (`/api/v1/ventas`, `/api/v1/despachos`),
-  - configuración de proxy en desarrollo o Nginx en producción.
-- Si la UI carga pero no hay datos, revisa respuesta real de API en DevTools (Network).
+`push main` → `build-and-push` (build + push a ECR) → `deploy-to-ec2` (SSM en EC2, pull y run de contenedor)
