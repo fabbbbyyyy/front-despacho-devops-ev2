@@ -107,8 +107,8 @@ Con reescritura:
 
 `nginx.conf` enruta:
 
-- `/api/v1/ventas` hacia `backend_ventas` (`10.0.130.47:8080`)
-- `/api/v1/despachos` hacia `backend_despachos` (`10.0.141.199:8081`)
+- `/api/v1/ventas` hacia `backend_ventas` (`<BACKEND_VENTAS_IP>:8080`)
+- `/api/v1/despachos` hacia `backend_despachos` (`<BACKEND_DESPACHOS_IP>:8081`)
 
 > Nota: esas IP son internas del entorno de despliegue y deben ajustarse según infraestructura.
 
