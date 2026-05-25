@@ -2,7 +2,7 @@ name: Build, Push and Deploy Frontend
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "deploy" ]
 
 env:
   REGISTRY_URL: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
