@@ -1,4 +1,4 @@
-# Flujo CI/CD
+# Flujo CI/CD.
 
 Este repositorio usa **GitHub Actions** con el workflow:
 
